@@ -76,7 +76,7 @@
   .ex-remove{color:var(--text-dim); font-size:18px; padding:4px 8px; border:none; background:none;}
 
   .set-row{
-    display:grid; grid-template-columns:28px 1fr 1fr 32px; gap:8px; align-items:center;
+    display:grid; grid-template-columns:22px 1fr 1fr 32px 28px; gap:6px; align-items:center;
     margin-bottom:8px;
   }
   .set-idx{color:var(--text-dim); font-size:13px; font-weight:700;}
@@ -89,6 +89,10 @@
     background:var(--surface-2); color:var(--text-dim); font-size:16px;
   }
   .set-done.on{background:var(--good-dim); border-color:var(--good); color:var(--good);}
+  .set-remove{
+    width:28px;height:32px;border:none;background:none;color:var(--text-dim);
+    font-size:15px; opacity:.7;
+  }
 
   .btn-line{
     width:100%; padding:10px; border-radius:10px; border:1px dashed var(--line);
@@ -338,14 +342,27 @@ function renderExList(){
       doneBtn.className = 'set-done'+(set.done?' on':'');
       doneBtn.textContent = '✓';
       doneBtn.onclick = ()=>{
+        const wasOff = !set.done;
         set.done = !set.done;
         saveSession();
         renderExList();
+        if(wasOff && set.done) startAutoRest();
       };
       const [pesoInput, repsInput] = row.querySelectorAll('input');
       pesoInput.oninput = ()=>{ set.peso = pesoInput.value; saveSession(); };
       repsInput.oninput = ()=>{ set.reps = repsInput.value; saveSession(); };
       row.appendChild(doneBtn);
+
+      const rmSetBtn = document.createElement('button');
+      rmSetBtn.className = 'set-remove';
+      rmSetBtn.textContent = '✕';
+      rmSetBtn.onclick = ()=>{
+        session[exName].splice(setIdx,1);
+        saveSession();
+        renderExList();
+      };
+      row.appendChild(rmSetBtn);
+
       card.appendChild(row);
     });
 
@@ -488,6 +505,19 @@ document.getElementById('timerToggle').onclick = ()=>{
   document.getElementById('timerToggle').textContent = 'Pausar';
   timerInterval = setInterval(tick, 1000);
 };
+
+function startAutoRest(){
+  const AUTO_REST = 60;
+  stopTimer();
+  timerTotal = AUTO_REST;
+  timerLeft = AUTO_REST;
+  renderPresets();
+  updateTimerDisplay();
+  switchView('timer');
+  timerRunning = true;
+  document.getElementById('timerToggle').textContent = 'Pausar';
+  timerInterval = setInterval(tick, 1000);
+}
 document.getElementById('timerReset').onclick = ()=>{
   stopTimer();
   timerLeft = timerTotal;
