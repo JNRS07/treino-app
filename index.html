@@ -106,6 +106,7 @@
   }
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
   #workoutStatus .btn-primary{ margin:0 0 16px; }
+  #finishBtn:disabled{opacity:.45; cursor:not-allowed; pointer-events:none;}
 
   .btn-line{
     width:100%; padding:10px; border-radius:10px; border:1px dashed var(--line);
@@ -182,6 +183,9 @@
   .cal-day:active .cal-dot{transform:scale(.94);}
   .cal-clear{display:block; margin:10px auto 0; font-size:12px; color:var(--accent); background:none; border:none; font-weight:700; padding:0;}
   .hist-actions{display:flex; justify-content:flex-end; margin-bottom:10px;}
+  .sess-top-right{display:flex; align-items:center; gap:10px;}
+  .sess-delete{background:none; border:0; color:var(--text-dim); font-size:15px; padding:2px 4px; cursor:pointer;}
+  .sess-delete:active{color:var(--accent); transform:scale(.92);}
   .btn-danger{border:1px solid var(--line); background:none; color:var(--text-dim); border-radius:9px; padding:8px 10px; font-size:12px; font-weight:700;}
   .btn-danger:active{color:var(--accent); border-color:var(--accent);}
 
@@ -238,9 +242,6 @@
     <div class="daytabs" id="histFilter"></div>
     <div class="card" id="calWrap"></div>
     <div class="stat-row" id="statRow"></div>
-    <div class="hist-actions">
-      <button class="btn-danger" id="clearHistoryBtn">Excluir histórico</button>
-    </div>
     <div class="card" id="histCard">
       <div id="histList"></div>
     </div>
@@ -385,6 +386,13 @@ function renderDayTabs(){
 }
 
 /* ---------- status / cronômetro do treino ---------- */
+function updateFinishButtonState(){
+  const btn = document.getElementById('finishBtn');
+  if(!btn) return;
+  btn.disabled = !workoutStart;
+  btn.title = workoutStart ? 'Finalize o treino quando pelo menos um exercício estiver marcado como feito.' : 'Inicie o treino antes de finalizar.';
+}
+
 function renderWorkoutStatus(){
   const wrap = document.getElementById('workoutStatus');
   if(workoutStart){
@@ -394,6 +402,7 @@ function renderWorkoutStatus(){
     wrap.innerHTML = `<button class="btn-primary">Iniciar treino</button>`;
     wrap.querySelector('button').onclick = startWorkout;
   }
+  updateFinishButtonState();
 }
 function startWorkout(){
   workoutStart = new Date().toISOString();
@@ -490,23 +499,34 @@ document.getElementById('addExBtn').onclick = ()=>{
 };
 
 document.getElementById('finishBtn').onclick = ()=>{
+  if(!workoutStart){
+    alert('Inicie o treino antes de finalizar.');
+    renderWorkoutStatus();
+    return;
+  }
+
   const exercicios = Object.entries(session)
     .filter(([name])=> (plan[currentDay]||[]).includes(name))
     .map(([nome, sets])=>({
       nome,
-      series: sets.filter(s=> s.peso!=='' || s.reps!=='')
+      series: sets.filter(s=> s.peso!=='' || s.reps!==''),
+      feitas: sets.filter(s=> s.done===true)
     }))
     .filter(e=> e.series.length>0);
-  if(exercicios.length===0){ alert('Registre pelo menos uma série antes de finalizar.'); return; }
-  let duracaoSeg = null;
-  if(workoutStart){
-    duracaoSeg = Math.floor((Date.now()-new Date(workoutStart).getTime())/1000);
+
+  if(!exercicios.some(e=> e.feitas.length>0)){
+    alert('Marque pelo menos um exercício como feito antes de finalizar o treino.');
+    return;
   }
+
+  const exerciciosSalvos = exercicios.map(({nome, series})=>({nome, series}));
+  const duracaoSeg = Math.floor((Date.now()-new Date(workoutStart).getTime())/1000);
   const hist = loadHist();
   hist.unshift({
+    id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
     data: new Date().toISOString(),
     dia: currentDay,
-    exercicios,
+    exercicios: exerciciosSalvos,
     duracaoSeg
   });
   saveHist(hist);
@@ -618,8 +638,6 @@ function clearHistory(){
   renderHistorico();
 }
 
-document.getElementById('clearHistoryBtn').onclick = clearHistory;
-
 function renderHistorico(){
   renderHistFilter();
   let hist = loadHist().filter(s=> histFilter==='Todos' || s.dia===histFilter);
@@ -652,6 +670,7 @@ function renderHistorico(){
     div.className = 'sess';
     const d = new Date(s.data);
     const dstr = d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
+    const sessionId = s.id || s.data;
     let sessReps = 0, sessVol = 0;
     const linhas = s.exercicios.map(e=>{
       const resumo = e.series.map(st=>{
@@ -663,7 +682,7 @@ function renderHistorico(){
     }).join('');
     const dur = formatDuration(s.duracaoSeg);
     div.innerHTML = `
-      <div class="sess-top"><div class="sess-day">${s.dia}</div><div class="sess-date num">${dstr}</div></div>
+      <div class="sess-top"><div class="sess-day">${s.dia}</div><div class="sess-top-right"><div class="sess-date num">${dstr}</div><button class="sess-delete" data-session="${sessionId}" title="Excluir treino" aria-label="Excluir treino">✕</button></div></div>
       <div class="sess-meta">
         <span><b class="num">${sessReps}</b> reps</span>
         <span><b class="num">${Math.round(sessVol).toLocaleString('pt-BR')}</b> kg total</span>
@@ -672,6 +691,23 @@ function renderHistorico(){
       ${linhas}
     `;
     listEl.appendChild(div);
+  });
+
+  listEl.querySelectorAll('.sess-delete').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.session;
+      const treino = loadHist().find(s=>(s.id || s.data)===id);
+      if(!treino) return;
+      const d = new Date(treino.data).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
+      const ok = confirm(`Excluir o treino de ${treino.dia} (${d})?\n\nEssa ação não pode ser desfeita.`);
+      if(!ok) return;
+      const novoHist = loadHist().filter(s=>(s.id || s.data)!==id);
+      saveHist(novoHist);
+      if(selectedDate && !novoHist.some(s=>dateKey(new Date(s.data))===selectedDate)){
+        selectedDate = null;
+      }
+      renderHistorico();
+    };
   });
 }
 
