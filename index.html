@@ -158,22 +158,29 @@
   .sess-meta b{color:var(--text); font-weight:800;}
   .empty{color:var(--text-dim); font-size:14px; text-align:center; padding:60px 20px; line-height:1.6;}
 
-  .cal-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
+  /* Calendário semanal */
+  .cal-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
   .cal-title{font-weight:800; font-size:15px; text-transform:capitalize;}
   .cal-nav{background:var(--surface-2); border:1px solid var(--line); color:var(--text); width:30px;height:30px;border-radius:8px; font-size:16px;}
-  .cal-week{display:grid; grid-template-columns:repeat(7,1fr); margin-bottom:4px;}
-  .cal-week span{text-align:center; font-size:11px; color:var(--text-dim); font-weight:700;}
-  .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:2px;}
-  .cal-cell{
-    aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    background:none; border:1px solid transparent; color:var(--text); font-size:13px; border-radius:8px;
-    gap:3px;
+  .cal-week{display:grid; grid-template-columns:repeat(7,1fr); gap:7px;}
+  .cal-day{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-width:0; padding:2px 0 4px; background:none; border:0; color:var(--text-dim);
   }
-  .cal-cell.empty{visibility:hidden;}
-  .cal-cell.today span{color:var(--accent); font-weight:800;}
-  .cal-cell.selected{background:var(--surface-2); border-color:var(--accent);}
-  .cal-dot{width:5px;height:5px;border-radius:50%; background:var(--good);}
-  .cal-clear{font-size:12px; color:var(--accent); background:none; border:none; font-weight:700; padding:0 0 2px;}
+  .cal-day-label{font-size:11px; font-weight:700; margin-bottom:7px; text-transform:uppercase;}
+  .cal-dot{
+    width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:var(--surface-2); border:1px solid var(--line); color:transparent;
+    font-size:16px; font-weight:900; transition:.15s ease;
+  }
+  .cal-day.today .cal-day-label{color:var(--accent);}
+  .cal-day.today .cal-dot{border-color:var(--accent);}
+  .cal-day.done .cal-dot{
+    background:var(--good); border-color:var(--good); color:#07130f;
+  }
+  .cal-day.selected .cal-dot{box-shadow:0 0 0 2px var(--accent);}
+  .cal-day:active .cal-dot{transform:scale(.94);}
+  .cal-clear{display:block; margin:10px auto 0; font-size:12px; color:var(--accent); background:none; border:none; font-weight:700; padding:0;}
 
   .stat-row{display:flex; gap:10px; margin-bottom:16px;}
   .stat{flex:1; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 10px; text-align:center;}
@@ -509,8 +516,7 @@ document.getElementById('finishBtn').onclick = ()=>{
 
 /* ---------- histórico ---------- */
 let histFilter = 'Todos';
-let calYear = new Date().getFullYear();
-let calMonth = new Date().getMonth();
+let calWeekOffset = 0;
 let selectedDate = null; // 'YYYY-MM-DD'
 
 function dateKey(d){
@@ -520,46 +526,67 @@ function dateKey(d){
 function renderCalendar(hist){
   const wrap = document.getElementById('calWrap');
   const trained = new Set(hist.map(s=> dateKey(new Date(s.data))));
-  const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const firstDay = new Date(calYear, calMonth, 1);
-  const startWeekday = firstDay.getDay();
-  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+
+  // A semana é sempre exibida de segunda a domingo, como no calendário
+  // visual solicitado. calWeekOffset permite navegar entre semanas.
+  const base = new Date();
+  base.setHours(0,0,0,0);
+  const day = base.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(base);
+  monday.setDate(base.getDate() + mondayOffset + (calWeekOffset * 7));
+
+  const dayNames = ['SEG','TER','QUA','QUI','SEX','SAB','DOM'];
   const todayStr = dateKey(new Date());
+  const weekStart = dateKey(monday);
+  const weekEndDate = new Date(monday);
+  weekEndDate.setDate(monday.getDate()+6);
+  const weekEnd = dateKey(weekEndDate);
 
   let cells = '';
-  for(let i=0;i<startWeekday;i++) cells += `<div class="cal-cell empty"></div>`;
-  for(let day=1; day<=daysInMonth; day++){
-    const key = calYear+'-'+String(calMonth+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+  for(let i=0;i<7;i++){
+    const d = new Date(monday);
+    d.setDate(monday.getDate()+i);
+    const key = dateKey(d);
     const hasTrain = trained.has(key);
-    const cls = ['cal-cell'];
+    const cls = ['cal-day'];
     if(key===todayStr) cls.push('today');
+    if(hasTrain) cls.push('done');
     if(key===selectedDate) cls.push('selected');
-    cells += `<button class="${cls.join(' ')}" data-key="${key}"><span>${day}</span>${hasTrain?'<i class="cal-dot"></i>':''}</button>`;
+
+    cells += `<button class="${cls.join(' ')}" data-key="${key}" aria-label="${dayNames[i]} ${d.getDate()}${hasTrain?' — treino feito':''}">
+      <span class="cal-day-label">${dayNames[i]}</span>
+      <span class="cal-dot">${hasTrain?'✓':''}</span>
+    </button>`;
   }
+
+  const startLabel = monday.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  const endLabel = weekEndDate.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
 
   wrap.innerHTML = `
     <div class="cal-head">
-      <button class="cal-nav" id="calPrev">‹</button>
-      <div class="cal-title">${monthNames[calMonth]} ${calYear}</div>
-      <button class="cal-nav" id="calNext">›</button>
+      <button class="cal-nav" id="calPrev" aria-label="Semana anterior">‹</button>
+      <div class="cal-title">${startLabel} — ${endLabel}</div>
+      <button class="cal-nav" id="calNext" aria-label="Próxima semana">›</button>
     </div>
-    <div class="cal-week"><span>D</span><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span></div>
-    <div class="cal-grid">${cells}</div>
+    <div class="cal-week">${cells}</div>
     ${selectedDate ? `<button class="cal-clear" id="calClear">Ver todos os dias ✕</button>` : ''}
   `;
-  document.getElementById('calPrev').onclick = ()=>{ calMonth--; if(calMonth<0){calMonth=11; calYear--;} renderHistorico(); };
-  document.getElementById('calNext').onclick = ()=>{ calMonth++; if(calMonth>11){calMonth=0; calYear++;} renderHistorico(); };
-  wrap.querySelectorAll('.cal-cell[data-key]').forEach(btn=>{
+
+  document.getElementById('calPrev').onclick = ()=>{ calWeekOffset--; renderHistorico(); };
+  document.getElementById('calNext').onclick = ()=>{ calWeekOffset++; renderHistorico(); };
+
+  wrap.querySelectorAll('.cal-day[data-key]').forEach(btn=>{
     btn.onclick = ()=>{
       const key = btn.dataset.key;
       selectedDate = (selectedDate===key) ? null : key;
       renderHistorico();
     };
   });
+
   const clearBtn = document.getElementById('calClear');
   if(clearBtn) clearBtn.onclick = ()=>{ selectedDate = null; renderHistorico(); };
 }
-
 function renderHistFilter(){
   const wrap = document.getElementById('histFilter');
   const opts = ['Todos', ...DAYS];
@@ -717,4 +744,3 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
-  
