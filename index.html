@@ -158,6 +158,23 @@
   .sess-meta b{color:var(--text); font-weight:800;}
   .empty{color:var(--text-dim); font-size:14px; text-align:center; padding:60px 20px; line-height:1.6;}
 
+  .cal-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
+  .cal-title{font-weight:800; font-size:15px; text-transform:capitalize;}
+  .cal-nav{background:var(--surface-2); border:1px solid var(--line); color:var(--text); width:30px;height:30px;border-radius:8px; font-size:16px;}
+  .cal-week{display:grid; grid-template-columns:repeat(7,1fr); margin-bottom:4px;}
+  .cal-week span{text-align:center; font-size:11px; color:var(--text-dim); font-weight:700;}
+  .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:2px;}
+  .cal-cell{
+    aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:none; border:1px solid transparent; color:var(--text); font-size:13px; border-radius:8px;
+    gap:3px;
+  }
+  .cal-cell.empty{visibility:hidden;}
+  .cal-cell.today span{color:var(--accent); font-weight:800;}
+  .cal-cell.selected{background:var(--surface-2); border-color:var(--accent);}
+  .cal-dot{width:5px;height:5px;border-radius:50%; background:var(--good);}
+  .cal-clear{font-size:12px; color:var(--accent); background:none; border:none; font-weight:700; padding:0 0 2px;}
+
   .stat-row{display:flex; gap:10px; margin-bottom:16px;}
   .stat{flex:1; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 10px; text-align:center;}
   .stat .v{font-size:22px; font-weight:800;}
@@ -209,6 +226,7 @@
   <!-- VIEW: HISTORICO -->
   <section class="view" id="view-historico">
     <div class="daytabs" id="histFilter"></div>
+    <div class="card" id="calWrap"></div>
     <div class="stat-row" id="statRow"></div>
     <div class="card" id="histCard">
       <div id="histList"></div>
@@ -491,6 +509,57 @@ document.getElementById('finishBtn').onclick = ()=>{
 
 /* ---------- histórico ---------- */
 let histFilter = 'Todos';
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+let selectedDate = null; // 'YYYY-MM-DD'
+
+function dateKey(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function renderCalendar(hist){
+  const wrap = document.getElementById('calWrap');
+  const trained = new Set(hist.map(s=> dateKey(new Date(s.data))));
+  const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const firstDay = new Date(calYear, calMonth, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const todayStr = dateKey(new Date());
+
+  let cells = '';
+  for(let i=0;i<startWeekday;i++) cells += `<div class="cal-cell empty"></div>`;
+  for(let day=1; day<=daysInMonth; day++){
+    const key = calYear+'-'+String(calMonth+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    const hasTrain = trained.has(key);
+    const cls = ['cal-cell'];
+    if(key===todayStr) cls.push('today');
+    if(key===selectedDate) cls.push('selected');
+    cells += `<button class="${cls.join(' ')}" data-key="${key}"><span>${day}</span>${hasTrain?'<i class="cal-dot"></i>':''}</button>`;
+  }
+
+  wrap.innerHTML = `
+    <div class="cal-head">
+      <button class="cal-nav" id="calPrev">‹</button>
+      <div class="cal-title">${monthNames[calMonth]} ${calYear}</div>
+      <button class="cal-nav" id="calNext">›</button>
+    </div>
+    <div class="cal-week"><span>D</span><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span></div>
+    <div class="cal-grid">${cells}</div>
+    ${selectedDate ? `<button class="cal-clear" id="calClear">Ver todos os dias ✕</button>` : ''}
+  `;
+  document.getElementById('calPrev').onclick = ()=>{ calMonth--; if(calMonth<0){calMonth=11; calYear--;} renderHistorico(); };
+  document.getElementById('calNext').onclick = ()=>{ calMonth++; if(calMonth>11){calMonth=0; calYear++;} renderHistorico(); };
+  wrap.querySelectorAll('.cal-cell[data-key]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const key = btn.dataset.key;
+      selectedDate = (selectedDate===key) ? null : key;
+      renderHistorico();
+    };
+  });
+  const clearBtn = document.getElementById('calClear');
+  if(clearBtn) clearBtn.onclick = ()=>{ selectedDate = null; renderHistorico(); };
+}
+
 function renderHistFilter(){
   const wrap = document.getElementById('histFilter');
   const opts = ['Todos', ...DAYS];
@@ -505,7 +574,11 @@ function renderHistFilter(){
 }
 function renderHistorico(){
   renderHistFilter();
-  const hist = loadHist().filter(s=> histFilter==='Todos' || s.dia===histFilter);
+  let hist = loadHist().filter(s=> histFilter==='Todos' || s.dia===histFilter);
+  renderCalendar(hist);
+  if(selectedDate){
+    hist = hist.filter(s=> dateKey(new Date(s.data))===selectedDate);
+  }
   const statRow = document.getElementById('statRow');
   const totalSessoes = hist.length;
   const ultimos30 = hist.filter(s=> (Date.now()-new Date(s.data).getTime()) < 30*86400000).length;
