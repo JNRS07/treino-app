@@ -54,10 +54,11 @@
   .view{display:none;}
   .view.active{display:block;}
 
-  .daytabs{display:flex; gap:8px; margin-bottom:18px;}
+  .daytabs{display:flex; gap:8px; margin-bottom:18px; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;}
+  .daytabs::-webkit-scrollbar{display:none;}
   .daytab{
-    flex:1; padding:10px 0; text-align:center; border-radius:10px;
-    background:var(--surface); color:var(--text-dim);
+    flex:0 0 auto; padding:10px 16px; text-align:center; border-radius:10px;
+    background:var(--surface); color:var(--text-dim); white-space:nowrap;
     font-weight:700; font-size:13px; letter-spacing:.03em;
     border:1px solid var(--line);
   }
@@ -211,6 +212,32 @@
   }
   .preset.active{background:var(--accent); border-color:var(--accent); color:#fff;}
   .timerbtns{display:flex; gap:10px; width:100%; max-width:280px;}
+  .timerquick{display:grid; grid-template-columns:1fr 1.25fr 1fr; gap:8px; width:100%; max-width:280px; margin:-6px 0 12px;}
+  .timerquick button{border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--text); min-height:40px; font-size:13px; font-weight:800;}
+  .timerquick .skip-rest{border-color:var(--accent); color:var(--accent);}
+  .workout-rest-controls{display:none; margin:-2px 0 14px;}
+  .workout-rest-controls.visible{display:block;}
+
+  /* Timer flutuante no canto (visível na tela de Treino) */
+  .corner-timer{
+    position:fixed; right:14px;
+    bottom:calc(78px + env(safe-area-inset-bottom));
+    z-index:30;
+    background:var(--surface); border:1px solid var(--accent);
+    color:var(--accent); border-radius:22px; padding:9px 16px 9px 12px;
+    display:flex; align-items:center; gap:7px;
+    box-shadow:0 6px 18px rgba(0,0,0,.4);
+  }
+  .corner-timer.hidden{display:none;}
+  .corner-timer .ct-dot{width:7px;height:7px;border-radius:50%;background:var(--accent); animation:pulse 1.2s infinite;}
+  .corner-timer .ct-num{font-size:16px; font-weight:800;}
+  .corner-timer .ct-label{font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; margin-left:2px;}
+
+  /* Estatísticas por exercício (último / recorde) */
+  .ex-stats{font-size:11px; color:var(--text-dim); margin:-6px 0 10px;}
+  .ex-stats b{color:var(--text);}
+
+  .set-done:disabled{opacity:.38; cursor:not-allowed; filter:grayscale(1);}
 </style>
 </head>
 <body>
@@ -229,6 +256,13 @@
   <section class="view active" id="view-treino">
     <div class="daytabs" id="dayTabs"></div>
     <div id="workoutStatus"></div>
+    <div class="workout-rest-controls" id="workoutRestControls">
+      <div class="timerquick" aria-label="Ajustar descanso em andamento">
+        <button id="workoutTimerMinus10" type="button">−10s</button>
+        <button id="workoutTimerSkip" class="skip-rest" type="button">Pular descanso</button>
+        <button id="workoutTimerPlus10" type="button">+10s</button>
+      </div>
+    </div>
     <div class="addex">
       <input type="text" id="newExName" placeholder="Adicionar exercício">
       <button id="addExBtn">+</button>
@@ -239,6 +273,9 @@
 
   <!-- VIEW: HISTORICO -->
   <section class="view" id="view-historico">
+    <div class="hist-actions">
+      <button class="btn-danger" id="clearHistBtn">Limpar histórico</button>
+    </div>
     <div class="daytabs" id="histFilter"></div>
     <div class="card" id="calWrap"></div>
     <div class="stat-row" id="statRow"></div>
@@ -259,6 +296,11 @@
         <div class="timernum num" id="timerNum">60</div>
       </div>
       <div class="presets" id="presets"></div>
+      <div class="timerquick" aria-label="Ajustar descanso">
+        <button id="timerMinus10" type="button">−10s</button>
+        <button id="timerSkip" class="skip-rest" type="button">Pular descanso</button>
+        <button id="timerPlus10" type="button">+10s</button>
+      </div>
       <div class="timerbtns">
         <button class="btn-ghost" id="timerReset">Reiniciar</button>
         <button class="btn-primary" id="timerToggle" style="margin:0;">Iniciar</button>
@@ -267,6 +309,12 @@
   </section>
 
 </main>
+
+<button id="cornerTimer" class="corner-timer hidden num">
+  <span class="ct-dot"></span>
+  <span class="ct-num">60</span>
+  <span class="ct-label">descanso</span>
+</button>
 
 <nav class="bottom">
   <button data-view="treino" class="active">
@@ -285,12 +333,22 @@
 
 <script>
 /* ---------- estado / storage ---------- */
-const DAYS = ["Push","Pull","Legs"];
+const DEFAULT_FICHAS = ["Push","Pull A","Legs","Push B","Pull B","Cardio"];
 const DEFAULT_PLAN = {
-  Push: ["Supino reto","Supino inclinado halter","Desenvolvimento ombro","Crucifixo","Tríceps corda","Abdômen — prancha"],
-  Pull: ["Puxada frente","Remada curvada","Remada unilateral","Rosca direta","Rosca martelo","Abdômen — elevação de pernas"],
-  Legs: ["Agachamento","Leg press","Cadeira extensora","Mesa flexora","Panturrilha","Abdômen — abdominal infra"]
+  Push: ["Supino deitado","Supino inclinado halter","Desenvolvimento ombro","Crucifixo","Tríceps corda","Abdômen — prancha"],
+  "Pull A": ["Puxada frente","Remada curvada","Remada unilateral","Rosca direta","Rosca martelo","Abdômen — elevação de pernas"],
+  Legs: ["Agachamento","Leg press","Cadeira extensora","Mesa flexora","Panturrilha","Abdômen — abdominal infra"],
+  "Push B": ["Supino declinado","Desenvolvimento halteres","Elevação lateral","Tríceps testa","Tríceps francês","Abdômen — prancha lateral"],
+  "Pull B": ["Barra fixa","Remada cavalinho","Puxada supinada","Rosca Scott","Rosca inversa","Abdômen — remador"],
+  Cardio: ["Esteira","Bicicleta ergométrica","Elíptico","Pular corda","Escada"]
 };
+function loadFichas(){
+  const raw = localStorage.getItem('treino_fichas');
+  if(raw) return JSON.parse(raw);
+  localStorage.setItem('treino_fichas', JSON.stringify(DEFAULT_FICHAS));
+  return [...DEFAULT_FICHAS];
+}
+function saveFichas(f){ localStorage.setItem('treino_fichas', JSON.stringify(f)); }
 
 function loadPlan(){
   const raw = localStorage.getItem('treino_plano');
@@ -305,8 +363,59 @@ function loadHist(){
 }
 function saveHist(h){ localStorage.setItem('treino_historico', JSON.stringify(h)); }
 
+let FICHAS = loadFichas();
 let plan = loadPlan();
-let currentDay = localStorage.getItem('treino_dia_atual') || DAYS[0];
+
+/* Migração: garante que quem já usava o app ganhe as novas fichas padrão
+   (Pull A, Push B, Pull B, Cardio) sem perder fichas/histórico existentes. */
+(function migrateFichasV2(){
+  if(localStorage.getItem('treino_migrado_v2')) return;
+  let changed = false;
+  DEFAULT_FICHAS.forEach(f=>{
+    if(!FICHAS.includes(f)){ FICHAS.push(f); changed = true; }
+    if(!plan[f] || plan[f].length===0){ plan[f] = [...(DEFAULT_PLAN[f]||[])]; changed = true; }
+  });
+  if(changed){ saveFichas(FICHAS); savePlan(plan); }
+  localStorage.setItem('treino_migrado_v2', '1');
+})();
+
+/* Migração: renomeia a ficha antiga "Pull" para "Pull A", preservando
+   exercícios, histórico e sessão em andamento. Roda só uma vez. */
+(function renamePullToPullA(){
+  if(localStorage.getItem('treino_migrado_pull_rename')) return;
+  if(FICHAS.includes('Pull')){
+    // usa os exercícios da "Pull" antiga (pode já ter sido customizada)
+    plan['Pull A'] = plan['Pull'] || plan['Pull A'] || [];
+    delete plan['Pull'];
+    FICHAS = FICHAS.filter(f=>f!=='Pull');
+    if(!FICHAS.includes('Pull A')) FICHAS.push('Pull A');
+    saveFichas(FICHAS);
+    savePlan(plan);
+
+    // atualiza o histórico
+    const hist = loadHist().map(s=> s.dia==='Pull' ? {...s, dia:'Pull A'} : s);
+    saveHist(hist);
+
+    // migra sessão em andamento e horário de início, se houver
+    const oldSession = localStorage.getItem('treino_sessao_Pull');
+    if(oldSession){
+      localStorage.setItem('treino_sessao_Pull A', oldSession);
+      localStorage.removeItem('treino_sessao_Pull');
+    }
+    const oldStart = localStorage.getItem('treino_start_Pull');
+    if(oldStart){
+      localStorage.setItem('treino_start_Pull A', oldStart);
+      localStorage.removeItem('treino_start_Pull');
+    }
+    if(localStorage.getItem('treino_dia_atual')==='Pull'){
+      localStorage.setItem('treino_dia_atual', 'Pull A');
+    }
+  }
+  localStorage.setItem('treino_migrado_pull_rename', '1');
+})();
+
+let currentDay = localStorage.getItem('treino_dia_atual') || '';
+if(!currentDay || !FICHAS.includes(currentDay)) currentDay = FICHAS[0];
 let session = {}; // { exName: [{peso,reps,done}] }
 let workoutStart = null; // ISO string ou null
 
@@ -314,11 +423,35 @@ function sessionKey(){ return 'treino_sessao_'+currentDay; }
 function loadSession(){
   const raw = localStorage.getItem(sessionKey());
   session = raw ? JSON.parse(raw) : {};
+  // Sessões antigas também não devem manter carga ou repetições negativas.
+  Object.values(session).forEach(sets => sets.forEach(set => {
+    ['peso','reps'].forEach(field => {
+      if(Number(set[field]) < 0) set[field] = '';
+    });
+  }));
 }
 function saveSession(){ localStorage.setItem(sessionKey(), JSON.stringify(session)); }
 
+function nonNegativeValue(input, integer=false){
+  let value = input.value.replace('-', '');
+  if(integer) value = value.replace(/[^0-9]/g, '');
+  if(value !== '' && Number(value) < 0) value = '';
+  input.value = value;
+  return value;
+}
+
 function startKey(){ return 'treino_start_'+currentDay; }
-function loadWorkoutStart(){ workoutStart = localStorage.getItem(startKey()); }
+function loadWorkoutStart(){
+  workoutStart = localStorage.getItem(startKey());
+  // Não preserve séries concluídas fora de um treino em andamento.
+  if(!workoutStart){
+    let changed = false;
+    Object.values(session).forEach(sets => sets.forEach(set => {
+      if(set.done){ set.done = false; changed = true; }
+    }));
+    if(changed) saveSession();
+  }
+}
 
 function formatMMSS(totalSec){
   const m = Math.floor(totalSec/60), s = totalSec%60;
@@ -350,6 +483,7 @@ function switchView(name){
   if(name!=='treino') document.getElementById('headTitle').textContent = titles[name];
   else tickHeader();
   if(name==='historico') renderHistorico();
+  updateCornerTimer();
 }
 
 function tickHeader(){
@@ -363,24 +497,26 @@ function tickHeader(){
 }
 setInterval(tickHeader, 1000);
 
-/* ---------- tabs de dia ---------- */
+/* ---------- tabs de dia (fichas) ---------- */
+function selectDay(d){
+  currentDay = d;
+  localStorage.setItem('treino_dia_atual', d);
+  loadSession();
+  loadWorkoutStart();
+  renderDayTabs();
+  renderExList();
+  renderWorkoutStatus();
+  tickHeader();
+}
+
 function renderDayTabs(){
   const wrap = document.getElementById('dayTabs');
   wrap.innerHTML = '';
-  DAYS.forEach(d=>{
+  FICHAS.forEach(d=>{
     const b = document.createElement('button');
     b.className = 'daytab'+(d===currentDay?' active':'');
     b.textContent = d;
-    b.onclick = ()=>{
-      currentDay = d;
-      localStorage.setItem('treino_dia_atual', d);
-      loadSession();
-      loadWorkoutStart();
-      renderDayTabs();
-      renderExList();
-      renderWorkoutStatus();
-      tickHeader();
-    };
+    b.onclick = ()=> selectDay(d);
     wrap.appendChild(b);
   });
 }
@@ -412,6 +548,31 @@ function startWorkout(){
 }
 
 /* ---------- lista de exercícios ---------- */
+function getExerciseStats(nome){
+  const hist = loadHist();
+  let last = null, lastDate = null, maxPeso = null, maxReps = null;
+  hist.forEach(s=>{
+    const ex = s.exercicios.find(e=>e.nome===nome);
+    if(!ex) return;
+    const d = new Date(s.data);
+    ex.series.forEach(st=>{
+      const p = parseFloat(st.peso);
+      if(isNaN(p) || p < 0) return;
+      if(maxPeso===null || p>maxPeso){ maxPeso=p; maxReps=st.reps; }
+    });
+    if(!lastDate || d>lastDate){
+      let bestPeso=null, bestReps=null;
+      ex.series.forEach(st=>{
+        const p = parseFloat(st.peso);
+        if(isNaN(p) || p < 0) return;
+        if(bestPeso===null || p>bestPeso){ bestPeso=p; bestReps=st.reps; }
+      });
+      if(bestPeso!==null){ lastDate = d; last = {peso:bestPeso, reps:bestReps}; }
+    }
+  });
+  return { last, max: maxPeso!==null ? {peso:maxPeso, reps:maxReps} : null };
+}
+
 function renderExList(){
   const wrap = document.getElementById('exList');
   wrap.innerHTML = '';
@@ -438,18 +599,35 @@ function renderExList(){
     head.appendChild(rm);
     card.appendChild(head);
 
+    const stats = getExerciseStats(exName);
+    if(stats.last || stats.max){
+      const parts = [];
+      if(stats.last) parts.push(`Último: <b>${stats.last.peso}kg</b>×${stats.last.reps||'-'}`);
+      if(stats.max) parts.push(`Recorde: <b>${stats.max.peso}kg</b>×${stats.max.reps||'-'}`);
+      const statsEl = document.createElement('div');
+      statsEl.className = 'ex-stats';
+      statsEl.innerHTML = parts.join(' · ');
+      card.appendChild(statsEl);
+    }
+
     session[exName].forEach((set, setIdx)=>{
       const row = document.createElement('div');
       row.className = 'set-row';
       row.innerHTML = `
         <div class="set-idx">${setIdx+1}</div>
-        <input type="number" inputmode="decimal" placeholder="kg" value="${set.peso}">
-        <input type="number" inputmode="numeric" placeholder="reps" value="${set.reps}">
+        <input type="number" min="0" step="0.01" inputmode="decimal" placeholder="kg" value="${set.peso}">
+        <input type="number" min="0" step="1" inputmode="numeric" placeholder="reps" value="${set.reps}">
       `;
       const doneBtn = document.createElement('button');
       doneBtn.className = 'set-done'+(set.done?' on':'');
       doneBtn.textContent = '✓';
+      doneBtn.disabled = !workoutStart;
+      doneBtn.title = workoutStart ? 'Marcar série como feita' : 'Inicie o treino para marcar séries como feitas.';
       doneBtn.onclick = ()=>{
+        if(!workoutStart){
+          alert('Inicie o treino antes de marcar uma série como feita.');
+          return;
+        }
         const wasOff = !set.done;
         set.done = !set.done;
         saveSession();
@@ -457,8 +635,8 @@ function renderExList(){
         if(wasOff && set.done) startAutoRest();
       };
       const [pesoInput, repsInput] = row.querySelectorAll('input');
-      pesoInput.oninput = ()=>{ set.peso = pesoInput.value; saveSession(); };
-      repsInput.oninput = ()=>{ set.reps = repsInput.value; saveSession(); };
+      pesoInput.oninput = ()=>{ set.peso = nonNegativeValue(pesoInput); saveSession(); };
+      repsInput.oninput = ()=>{ set.reps = nonNegativeValue(repsInput, true); saveSession(); };
       row.appendChild(doneBtn);
 
       const rmSetBtn = document.createElement('button');
@@ -615,7 +793,8 @@ function renderCalendar(hist){
 }
 function renderHistFilter(){
   const wrap = document.getElementById('histFilter');
-  const opts = ['Todos', ...DAYS];
+  const historDias = new Set(loadHist().map(s=>s.dia));
+  const opts = ['Todos', ...new Set([...FICHAS, ...historDias])];
   wrap.innerHTML = '';
   opts.forEach(o=>{
     const b = document.createElement('button');
@@ -637,6 +816,7 @@ function clearHistory(){
   selectedDate = null;
   renderHistorico();
 }
+document.getElementById('clearHistBtn').onclick = clearHistory;
 
 function renderHistorico(){
   renderHistFilter();
@@ -650,7 +830,7 @@ function renderHistorico(){
   const ultimos30 = hist.filter(s=> (Date.now()-new Date(s.data).getTime()) < 30*86400000).length;
   let totalVolume = 0;
   hist.forEach(s=> s.exercicios.forEach(e=> e.series.forEach(st=>{
-    const p = parseFloat(st.peso)||0, r = parseFloat(st.reps)||0;
+    const p = Math.max(0, parseFloat(st.peso)||0), r = Math.max(0, parseFloat(st.reps)||0);
     totalVolume += p*r;
   })));
   statRow.innerHTML = `
@@ -674,7 +854,7 @@ function renderHistorico(){
     let sessReps = 0, sessVol = 0;
     const linhas = s.exercicios.map(e=>{
       const resumo = e.series.map(st=>{
-        const p = parseFloat(st.peso)||0, r = parseFloat(st.reps)||0;
+        const p = Math.max(0, parseFloat(st.peso)||0), r = Math.max(0, parseFloat(st.reps)||0);
         sessReps += r; sessVol += p*r;
         return `${st.peso||'-'}kg×${st.reps||'-'}`;
       }).join(', ');
@@ -742,11 +922,13 @@ function updateTimerDisplay(){
   timerNum.textContent = timerLeft;
   const frac = timerLeft/timerTotal;
   ring.setAttribute('stroke-dashoffset', RING_LEN*(1-frac));
+  updateCornerTimer();
 }
 function stopTimer(){
   timerRunning = false;
   clearInterval(timerInterval);
   document.getElementById('timerToggle').textContent = 'Iniciar';
+  updateCornerTimer();
 }
 function tick(){
   timerLeft--;
@@ -763,6 +945,7 @@ document.getElementById('timerToggle').onclick = ()=>{
   timerRunning = true;
   document.getElementById('timerToggle').textContent = 'Pausar';
   timerInterval = setInterval(tick, 1000);
+  updateCornerTimer();
 };
 
 function startAutoRest(){
@@ -772,16 +955,55 @@ function startAutoRest(){
   timerLeft = AUTO_REST;
   renderPresets();
   updateTimerDisplay();
-  switchView('timer');
   timerRunning = true;
   document.getElementById('timerToggle').textContent = 'Pausar';
   timerInterval = setInterval(tick, 1000);
+  updateCornerTimer();
 }
 document.getElementById('timerReset').onclick = ()=>{
   stopTimer();
   timerLeft = timerTotal;
   updateTimerDisplay();
 };
+function adjustRest(seconds){
+  timerLeft = Math.max(0, timerLeft + seconds);
+  // Ao estender o descanso, o anel acompanha o novo limite.
+  timerTotal = Math.max(timerTotal, timerLeft);
+  if(timerLeft===0){
+    stopTimer();
+    timerLeft = timerTotal;
+  }
+  updateTimerDisplay();
+}
+document.getElementById('timerMinus10').onclick = ()=> adjustRest(-10);
+document.getElementById('timerPlus10').onclick = ()=> adjustRest(10);
+document.getElementById('timerSkip').onclick = ()=>{
+  stopTimer();
+  timerLeft = timerTotal;
+  updateTimerDisplay();
+};
+document.getElementById('workoutTimerMinus10').onclick = ()=> adjustRest(-10);
+document.getElementById('workoutTimerPlus10').onclick = ()=> adjustRest(10);
+document.getElementById('workoutTimerSkip').onclick = ()=>{
+  stopTimer();
+  timerLeft = timerTotal;
+  updateTimerDisplay();
+};
+
+/* ---------- timer flutuante no canto ---------- */
+const cornerTimerEl = document.getElementById('cornerTimer');
+cornerTimerEl.addEventListener('click', ()=> switchView('timer'));
+function updateCornerTimer(){
+  const onTreino = document.getElementById('view-treino').classList.contains('active');
+  const active = timerRunning || (timerLeft < timerTotal && timerLeft > 0);
+  document.getElementById('workoutRestControls').classList.toggle('visible', onTreino && active);
+  if(onTreino && active){
+    cornerTimerEl.classList.remove('hidden');
+    cornerTimerEl.querySelector('.ct-num').textContent = timerLeft;
+  } else {
+    cornerTimerEl.classList.add('hidden');
+  }
+}
 
 /* ---------- init ---------- */
 loadSession();
@@ -792,6 +1014,7 @@ renderWorkoutStatus();
 renderPresets();
 updateTimerDisplay();
 tickHeader();
+updateCornerTimer();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
